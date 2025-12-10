@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>座位編排專用系統</title>
+    <title>座位編排系統</title>
     
     <!-- 設定 Favicon (網頁圖示) -->
     <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/d4cheap16/SEATS/main/chair.png">
@@ -50,7 +50,7 @@
             -moz-appearance: textfield;
         }
 
-        /* 班級標籤樣式 */
+        /* 班級標籤樣式 (螢幕顯示用) */
         .class-badge {
             font-size: 1.7rem; 
             line-height: 1.2;
@@ -98,11 +98,12 @@
             border-radius: 8px;
             text-align: center;
             vertical-align: middle;
-            padding: 4px;
+            padding: 0; /* 移除 padding 以便滿版 header */
             box-sizing: border-box;
             position: relative;
             /* 讓內容強制居中 */
             display: table-cell;
+            overflow: hidden; /* 確保圓角 */
         }
         
         /* 匯出內容垂直置中容器 */
@@ -113,6 +114,7 @@
             justify-content: center;
             height: 100%;
             width: 100%;
+            padding-top: 25px; /* 留空間給頂部的班級標籤 */
         }
     </style>
 </head>
@@ -318,9 +320,8 @@
         const LoginScreen = ({ onLogin, onAdminLogin }) => {
             const [input, setInput] = useState('');
             const [error, setError] = useState('');
-            const [selectedMode, setSelectedMode] = useState('single'); // 預設單一班級模式
+            const [selectedMode, setSelectedMode] = useState('single');
 
-            // 自動填入最後一次的班級代碼
             useEffect(() => {
                 const lastId = localStorage.getItem('last_active_classroom');
                 if (lastId) {
@@ -359,9 +360,7 @@
                     return;
                 }
                 
-                // 儲存這次的代碼
                 localStorage.setItem('last_active_classroom', code);
-                // 傳遞選擇的模式
                 onLogin(code, selectedMode);
             };
 
@@ -396,7 +395,7 @@
                                         className={`p-3 rounded-lg border-2 flex flex-col items-center gap-1 transition-all ${selectedMode === 'mixed' ? 'bg-purple-600/20 border-purple-500 text-purple-400' : 'bg-slate-700 border-slate-600 text-gray-500 hover:border-slate-500'}`}
                                     >
                                         <Icon name="users" size={24} />
-                                        <span className="font-bold text-sm">混合考場</span>
+                                        <span className="font-bold text-sm">混合班級</span>
                                     </button>
                                 </div>
                             </div>
@@ -405,7 +404,7 @@
                             
                             <button type="submit" className={`w-full font-bold py-3 rounded-lg border-b-4 active:border-b-0 active:translate-y-1 transition-all flex items-center justify-center gap-2 ${selectedMode === 'single' ? 'bg-blue-600 hover:bg-blue-500 border-blue-800 text-white' : 'bg-purple-600 hover:bg-purple-500 border-purple-800 text-white'}`}>
                                 <Icon name="log-in" size={20} /> 
-                                {selectedMode === 'single' ? '進入單一班級座位表' : '進入混合考場座位表'}
+                                {selectedMode === 'single' ? '進入單一班級座位表' : '進入混合班級座位表'}
                             </button>
                         </form>
                     </div>
@@ -425,8 +424,8 @@
             const [activeClassroom, setActiveClassroom] = useState(null);
             const [isAdminMode, setIsAdminMode] = useState(false);
             const [dataLoaded, setDataLoaded] = useState(false);
-            const [seatMode, setSeatMode] = useState('single'); // 'single' | 'mixed'
-            const [previewData, setPreviewData] = useState(null); // 儲存預覽圖片 DataURL
+            const [seatMode, setSeatMode] = useState('single'); 
+            const [previewData, setPreviewData] = useState(null); 
             const inputRefs = useRef({});
 
             const [helperClassName, setHelperClassName] = useState('');
@@ -458,7 +457,6 @@
                 return () => unsubscribe();
             }, []);
 
-            // 處理登入，接收模式選擇
             const handleLogin = (code, mode) => {
                 setActiveClassroom(code);
                 setSeatMode(mode);
@@ -477,7 +475,6 @@
                             if (parsed.config) setConfig(prev => ({...prev, ...parsed.config}));
                             if (parsed.rosterText) setRosterText(parsed.rosterText);
                             if (parsed.seats) setSeats(parsed.seats);
-                            // 如果本地有存模式，則使用本地的，否則保留登入時選的 (通常登入選的會覆蓋，這裡保留彈性)
                             if (parsed.seatMode) setSeatMode(parsed.seatMode);
                         } catch(e) {}
                     }
@@ -532,7 +529,7 @@
                 return () => clearTimeout(timer);
             }, [activeClassroom, config, rosterText, seats, seatMode, dataLoaded]);
 
-            // 名單解析邏輯
+            // 名單解析
             useEffect(() => {
                 const lines = rosterText.split('\n');
                 const newMap = {};
@@ -635,7 +632,6 @@
                 
                 if (seatMode === 'single') {
                     if (type === 'seat') {
-                        // 單一模式：直接儲存輸入值
                         setSeats(prev => ({ ...prev, [key]: { number: value } }));
                     }
                 } else {
@@ -704,26 +700,54 @@
 
             const isClassValid = !config.defaultClass || availableClasses.includes(config.defaultClass.trim());
 
-            // 輔助函式：尋找學生資料 (修正單一模式下的查找邏輯)
-            const findStudentData = (seatNum) => {
-                if (!seatNum) return null;
-                // 1. 嘗試精確比對 (rosterMap key === seatNum)
-                if (rosterMap[seatNum]) return rosterMap[seatNum];
+            // 輔助函式：尋找學生資料 (通用模糊搜尋)
+            const findStudentData = (query) => {
+                if (!query) return null;
+                // 1. 精確搜尋
+                if (rosterMap[query]) return rosterMap[query];
 
-                // 2. 單一模式下的模糊比對：
-                // 假設名單包含班級前綴 (如 "301-01")，但座號只有 "01" 或 "1"
-                if (seatMode === 'single') {
-                    const targetNum = parseInt(seatNum); // 轉成數字比對 (解決 01 vs 1)
-                    
-                    // 遍歷 rosterMap 尋找後綴符合的學生
-                    const foundKey = Object.keys(rosterMap).find(key => {
-                        const parts = key.split('-');
-                        const numPart = parts.length > 1 ? parts[1] : parts[0];
-                        return parseInt(numPart) === targetNum;
-                    });
-                    
-                    if (foundKey) return rosterMap[foundKey];
+                // 2. 模糊搜尋 (Smart Lookup)
+                // 嘗試處理 "04" vs "4" 以及 "301-4" vs "301-04"
+                
+                // 解析查詢字串
+                const queryParts = query.split('-');
+                let queryClass = null;
+                let queryNum = null;
+
+                if (queryParts.length > 1) {
+                    queryClass = queryParts[0];
+                    queryNum = parseInt(queryParts[1]); // 轉數字去零
+                } else {
+                    queryNum = parseInt(queryParts[0]);
                 }
+
+                if (isNaN(queryNum)) return null;
+
+                // 遍歷名單
+                const foundKey = Object.keys(rosterMap).find(key => {
+                    const keyParts = key.split('-');
+                    let keyClass = null;
+                    let keyNum = null;
+
+                    if (keyParts.length > 1) {
+                        keyClass = keyParts[0];
+                        keyNum = parseInt(keyParts[1]);
+                    } else {
+                        keyNum = parseInt(keyParts[0]);
+                    }
+
+                    // 比對邏輯
+                    if (queryClass) {
+                        // 如果查詢有班級，班級和座號都要對
+                        return keyClass === queryClass && keyNum === queryNum;
+                    } else {
+                        // 如果查詢沒班級 (例如單一模式)，只比對座號
+                        // 或者如果在混合模式下輸入了純數字，也嘗試比對
+                        return keyNum === queryNum;
+                    }
+                });
+
+                if (foundKey) return rosterMap[foundKey];
                 return null;
             };
 
@@ -736,11 +760,13 @@
 
                 pdfContainer.innerHTML = '';
                 
+                // 1. 標題
                 const title = document.createElement('h1');
                 title.style.cssText = 'font-size: 36pt; font-weight: 900; margin-bottom: 20px; color: #000; text-align: center; flex-shrink: 0;';
                 title.textContent = config.systemTitle || (seatMode === 'single' ? '班級座位表' : '考場座位表');
                 pdfContainer.appendChild(title);
 
+                // 2. 表格 (座位)
                 const tableWrapper = document.createElement('div');
                 tableWrapper.style.cssText = `flex-grow: 1; display: flex; flex-direction: column; justify-content: center; width: 100%;`;
                 
@@ -769,19 +795,20 @@
 
                         if (seatMode === 'single') {
                             displayNum = seatPart || seat.number;
-                            // 使用新的查找函式
-                            const studentData = findStudentData(displayNum);
+                            const studentData = findStudentData(displayNum); // 使用 Smart Lookup
                             displayStudentName = studentData?.name || '';
                         } else {
                             displayClass = classPart;
                             displayNum = seatPart || seat.number;
-                            const studentData = rosterMap[seat.number];
+                            const studentData = findStudentData(seat.number); // 使用 Smart Lookup
                             displayStudentName = studentData?.name || '';
                         }
                         
+                        // 內容容器
                         const contentWrapper = document.createElement('div');
                         contentWrapper.className = 'cell-content-wrapper';
 
+                        // 班級標籤 (修正：滿版置中 Header)
                         if (seatMode === 'mixed' && displayClass.trim()) {
                             const classDiv = document.createElement('div');
                             classDiv.textContent = displayClass;
@@ -792,18 +819,36 @@
                                 'fuchsia-600': '#c026d3', 'lime-700': '#4d7c0f', 'sky-600': '#0284c7', 'indigo-600': '#4f46e5'
                             };
                             const bgColor = colorMap[color] || '#4b5563';
+                            
+                            // 頂部滿版樣式
                             classDiv.style.cssText = `
-                                position: absolute; top: 4px; left: 50%; transform: translateX(-50%); background-color: ${bgColor};
-                                color: white; font-size: 8pt; font-weight: bold; padding: 3px 8px; border-radius: 4px; text-align: center; white-space: nowrap; display: flex; align-items: center; justify-content: center; line-height: 1;
+                                position: absolute; 
+                                top: 0; 
+                                left: 0; 
+                                width: 100%;
+                                height: 20%; /* 佔據頂部 20% 高度 */
+                                min-height: 24px;
+                                background-color: ${bgColor};
+                                color: white; 
+                                font-size: 14pt; /* 加大字體 */
+                                font-weight: 900; 
+                                border-radius: 6px 6px 0 0; /* 上方圓角 */
+                                display: flex;
+                                align-items: center;
+                                justify-content: center;
+                                line-height: 1;
+                                z-index: 1;
                             `;
                             td.appendChild(classDiv);
                         }
 
+                        // 座號
                         const numberDiv = document.createElement('div');
                         numberDiv.style.cssText = `font-size: 28pt; font-weight: 900; color: #1e293b; line-height: 1; margin-bottom: 4px;`;
                         numberDiv.textContent = displayNum.trim() || '-';
                         contentWrapper.appendChild(numberDiv);
 
+                        // 姓名
                         const nameDiv = document.createElement('div');
                         nameDiv.style.cssText = `font-size: 16pt; font-weight: 700; color: #334155;`;
                         nameDiv.textContent = displayStudentName || '';
@@ -818,6 +863,7 @@
                 tableWrapper.appendChild(table);
                 pdfContainer.appendChild(tableWrapper);
 
+                // 3. 講台
                 const podium = document.createElement('div');
                 podium.style.cssText = `
                     width: 100%; height: 20mm; background-color: #f1f5f9; border: 2px solid #64748b;
@@ -882,13 +928,12 @@
                     {/* Navbar */}
                     <div className="shrink-0 w-full bg-gray-300 text-gray-800 p-2 flex justify-between items-center border-b-4 border-gray-400 shadow-lg z-20 relative">
                         <div className="flex items-center gap-4">
-                            {/* 模式切換 (上方只顯示狀態，不再切換，避免誤觸) */}
                             <div className="bg-white rounded-lg p-1 flex shadow-inner border border-gray-300 ml-2 cursor-default">
                                 <div className={`px-3 py-1 rounded text-xs font-bold flex items-center gap-1 ${seatMode === 'single' ? 'bg-blue-600 text-white' : 'text-gray-400'}`}>
                                     <Icon name="user" size={14}/> 單一班級
                                 </div>
                                 <div className={`px-3 py-1 rounded text-xs font-bold flex items-center gap-1 ${seatMode === 'mixed' ? 'bg-purple-600 text-white' : 'text-gray-400'}`}>
-                                    <Icon name="users" size={14}/> 混合考場
+                                    <Icon name="users" size={14}/> 混合班級
                                 </div>
                             </div>
 
@@ -965,15 +1010,15 @@
                                             const key = `${r}-${c}`;
                                             const seat = seats[key] || { number: '' };
                                             
-                                            // 找學生資料 (用於顯示姓名)
-                                            // 單一模式：透過 helper function 尋找
-                                            // 混合模式：直接用 seat.number
+                                            // 找學生資料
                                             let studentName = '';
                                             if (seatMode === 'single') {
                                                 const data = findStudentData(seat.number);
                                                 studentName = data?.name || '';
                                             } else {
-                                                studentName = rosterMap[seat.number]?.name || '';
+                                                // 混合模式也使用 Smart Lookup
+                                                const data = findStudentData(seat.number);
+                                                studentName = data?.name || '';
                                             }
                                             
                                             const isDuplicate = seat.number && duplicateNumbers.has(seat.number);
@@ -1051,7 +1096,7 @@
                                 </div>
                                 <div className="shrink-0 mt-4 pt-2 border-t border-gray-300">
                                     <button onClick={() => setShowSettings(true)} className="w-full py-2 bg-blue-600 text-white rounded font-bold hover:bg-blue-700 flex items-center justify-center gap-2">
-                                        <Icon name="edit" size={16} /> 編輯名單與考場大小
+                                        <Icon name="edit" size={16} /> 編輯名單與班級大小
                                     </button>
                                 </div>
                             </div>
@@ -1091,7 +1136,7 @@
                     {showSettings && (
                         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
                             <div className="bg-white rounded-xl max-w-2xl w-full p-6 shadow-2xl flex flex-col max-h-[90vh]">
-                                <div className="flex justify-between items-center mb-4"><h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Icon name="settings" className="text-gray-600" /> 考場與資料庫設定</h2><button onClick={() => setShowSettings(false)} className="text-gray-500 hover:text-gray-800">✕</button></div>
+                                <div className="flex justify-between items-center mb-4"><h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Icon name="settings" className="text-gray-600" /> 教室與資料庫設定</h2><button onClick={() => setShowSettings(false)} className="text-gray-500 hover:text-gray-800">✕</button></div>
                                 <div className="overflow-y-auto flex-1 space-y-6 pr-2">
                                     <section className="bg-blue-50 p-4 rounded-lg border border-blue-100">
                                         <h3 className="font-bold text-blue-800 mb-2 flex items-center gap-2"><Icon name="cloud" className="text-blue-600" /> 雲端資料同步 (Firebase)</h3>
@@ -1173,8 +1218,8 @@
                                     
                                     <section className="bg-red-50 p-4 rounded-lg border border-red-200 mt-4">
                                         <h3 className="font-bold text-red-800 mb-2 flex items-center gap-2"><Icon name="shield-alert" className="text-red-600" /> 管理員專區</h3>
-                                        <p className="text-sm text-red-700 mb-3">此操作將永久刪除當前考場「{activeClassroom}」的所有資料。</p>
-                                        <button onClick={deleteClassroomData} className="w-full bg-red-600 text-white px-4 py-2 rounded flex items-center justify-center gap-2 hover:bg-red-700 font-bold"><Icon name="trash-2" size={18} /> 刪除此考場資料</button>
+                                        <p className="text-sm text-red-700 mb-3">此操作將永久刪除當前班級「{activeClassroom}」的所有資料。</p>
+                                        <button onClick={deleteClassroomData} className="w-full bg-red-600 text-white px-4 py-2 rounded flex items-center justify-center gap-2 hover:bg-red-700 font-bold"><Icon name="trash-2" size={18} /> 刪除此班級資料</button>
                                     </section>
                                 </div>
                                 <div className="mt-6 flex justify-between items-center pt-4 border-t"><span className="text-xs text-gray-400">{user ? `ID: ${user.uid.slice(0,8)}...` : '本地模式'}</span><button onClick={() => {saveToCloud(); setShowSettings(false);}} className="px-6 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 shadow-lg">儲存並關閉</button></div>
