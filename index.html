@@ -481,22 +481,27 @@
                 return () => unsubscribe();
             }, []);
 
-            // 處理登入，接收模式選擇，並強制更新本地儲存，避免被舊設定覆蓋
+            // 處理登入，接收模式選擇，並強制更新本地儲存與雲端，避免被舊設定覆蓋
             const handleLogin = (code, mode) => {
                 setActiveClassroom(code);
                 setSeatMode(mode);
-                // 立即更新本地存檔的模式，確保 loadLocal 時讀取到正確的（或不被舊的覆蓋）
-                // 這裡我們採取策略：如果已存在該教室的存檔，則更新其 seatMode
+                
+                // 1. 立即更新本地存檔
                 const savedLocal = localStorage.getItem(`examMonitorData_${code}`);
+                let newData = { seatMode: mode };
                 if (savedLocal) {
                     try {
                         const parsed = JSON.parse(savedLocal);
-                        parsed.seatMode = mode; // 強制寫入新選擇的模式
-                        localStorage.setItem(`examMonitorData_${code}`, JSON.stringify(parsed));
+                        newData = { ...parsed, seatMode: mode };
                     } catch(e) {}
-                } else {
-                    // 若無存檔，建立一個新的
-                    localStorage.setItem(`examMonitorData_${code}`, JSON.stringify({ seatMode: mode }));
+                }
+                localStorage.setItem(`examMonitorData_${code}`, JSON.stringify(newData));
+
+                // 2. 嘗試更新雲端 (如果已連線)
+                if (isFirebaseConfigured && auth.currentUser) {
+                     const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'classrooms', code);
+                     // 使用 setDoc + merge 來確保更新模式
+                     setDoc(docRef, { seatMode: mode }, { merge: true }).catch(e => console.error("Cloud update failed:", e));
                 }
             };
 
@@ -532,19 +537,10 @@
                         if (data.config) setConfig(prev => ({...prev, ...data.config}));
                         if (data.rosterText) setRosterText(data.rosterText);
                         if (data.seats) setSeats(data.seats);
-                        // 注意：如果雲端有存 seatMode，這裡會載入雲端的設定
-                        // 但因為我們在 handleLogin 時已經更新了本地，如果雲端是舊的，可能會不同步
-                        // 為了讓首頁選擇生效，我們可以選擇在此不覆蓋 seatMode，或者相信雲端
-                        // 但使用者的痛點是「進去後顯示錯誤」，表示首頁選擇應該優先於「舊的雲端紀錄」
-                        // 妥協方案：如果這次 session 是剛登入的，以登入為準。但這裡很難判斷。
-                        // 修正：我們在 handleLogin 時，其實還沒連上 Firebase，所以無法改雲端。
-                        // 最佳解：讀取完雲端資料後，如果發現跟本地剛設定的不一樣，或許該以本地（剛選的）為準？
-                        // 簡化處理：這裡讀取雲端資料，如果雲端有 seatMode 就用雲端的。
-                        // *如果使用者想切換，可以在介面上方的按鈕切換，然後存檔*
                         if (data.seatMode) setSeatMode(data.seatMode);
                         setSyncStatus('idle');
                     } else {
-                        // 雲端沒資料，讀本地 (本地已在 handleLogin 更新過)
+                        // 雲端沒資料，讀本地
                         const savedLocal = localStorage.getItem(`examMonitorData_${activeClassroom}`);
                         if (savedLocal) {
                             try {
@@ -751,10 +747,8 @@
             // 輔助函式：尋找學生資料 (通用模糊搜尋)
             const findStudentData = (query) => {
                 if (!query) return null;
-                // 1. 精確搜尋
                 if (rosterMap[query]) return rosterMap[query];
 
-                // 2. 模糊搜尋 (Smart Lookup)
                 const queryParts = query.split('-');
                 let queryClass = null;
                 let queryNum = null;
@@ -768,7 +762,6 @@
 
                 if (isNaN(queryNum)) return null;
 
-                // 遍歷名單
                 const foundKey = Object.keys(rosterMap).find(key => {
                     const keyParts = key.split('-');
                     let keyClass = null;
@@ -965,18 +958,7 @@
                     {/* Navbar */}
                     <div className="shrink-0 w-full bg-gray-300 text-gray-800 p-2 flex justify-between items-center border-b-4 border-gray-400 shadow-lg z-20 relative">
                         <div className="flex items-center gap-4">
-                            <div className="bg-white rounded-lg p-1 flex shadow-inner border border-gray-300 ml-2 cursor-default">
-                                {seatMode === 'single' ? (
-                                    <div className="px-3 py-1 rounded text-xs font-bold flex items-center gap-1 bg-blue-600 text-white">
-                                        <Icon name="user" size={14}/> 單一班級
-                                    </div>
-                                ) : (
-                                    <div className="px-3 py-1 rounded text-xs font-bold flex items-center gap-1 bg-purple-600 text-white">
-                                        <Icon name="users" size={14}/> 混合班級
-                                    </div>
-                                )}
-                            </div>
-
+                            <div className="flex gap-1 ml-2"><div className="w-3 h-3 rounded-full bg-red-500 animate-pulse"></div><div className="w-3 h-3 rounded-full bg-yellow-500"></div><div className="w-3 h-3 rounded-full bg-green-500"></div></div>
                             <input 
                                 type="text" 
                                 className="font-black text-xl tracking-widest text-gray-700 bg-transparent border-b-2 border-gray-500 outline-none hidden md:block placeholder-gray-400 w-64 select-text" 
