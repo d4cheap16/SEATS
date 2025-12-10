@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>座位編排專用系統</title>
     
+    <!-- 設定 Favicon (網頁圖示) -->
+    <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/d4cheap16/SEATS/main/chair.png">
+
     <!-- 載入 Tailwind CSS (樣式) -->
     <script src="https://cdn.tailwindcss.com"></script>
     
@@ -75,6 +78,7 @@
             font-family: 'Noto Sans TC', sans-serif; 
             display: flex;
             flex-direction: column;
+            justify-content: space-between; /* 確保內容分佈 */
             align-items: center;
             background: #fff;
         }
@@ -85,7 +89,8 @@
             border-collapse: separate;
             border-spacing: 8px; /* 座位間距 */
             table-layout: fixed;
-            margin: auto 0; /* 垂直置中 */
+            margin: 10px 0; /* 上下留白 */
+            flex-grow: 1; /* 讓表格佔據主要空間 */
         }
         .export-cell {
             border: 2px solid #94a3b8; /* slate-400 */
@@ -96,7 +101,18 @@
             padding: 4px;
             box-sizing: border-box;
             position: relative;
+            /* 讓內容強制居中 */
             display: table-cell;
+        }
+        
+        /* 匯出內容垂直置中容器 */
+        .cell-content-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            width: 100%;
         }
     </style>
 </head>
@@ -156,15 +172,15 @@
 
         // 預設名單
         const DEFAULT_ROSTER = `[高一OO班]
-01\t王小美
-02\t王小明
-03\t陳小華
-04\t林大衛
-05\t張曉芬
-06\t李大同
-07\t黃小玉
-08\t周杰倫
-09\t蔡依林
+1\t王小美
+2\t王小明
+3\t陳小華
+4\t林大衛
+5\t張曉芬
+6\t李大同
+7\t黃小玉
+8\t周杰倫
+9\t蔡依林
 10\t五月天`;
         
         // --- Helpers ---
@@ -579,17 +595,11 @@
                     ? currentVal.split('-') 
                     : ['', currentVal];
                 
-                // 單一班級模式下，不處理班級前綴 (顯示上)，但資料結構為了統一，我們暫時保留既有邏輯
-                // 只是輸入時，若為單一班級模式，Class 部分會是空的或依賴全域設定（但這裡我們讓它保持為空，顯示時處理）
                 if (seatMode === 'single') {
-                    // 單一班級模式：只更新座號部分，班級部分視為空（或忽略）
                     if (type === 'seat') {
-                        // 直接存座號
                         setSeats(prev => ({ ...prev, [key]: { number: value } }));
                     }
-                    // 單一模式沒有 class input
                 } else {
-                    // 混合模式：保留原有邏輯
                     if (!currentVal.includes('-')) {
                         currentNum = currentVal;
                         currentClass = '';
@@ -635,7 +645,6 @@
                 else if (e.key === 'ArrowRight') targetC = Math.min(config.cols - 1, c + 1);
                 else return;
                 
-                // 單一模式下沒有 class input，所以只需導向 seat input
                 const targetKey = `${targetR}-${targetC}-seat`; 
                 if (inputRefs.current[targetKey]) { 
                     e.preventDefault(); 
@@ -657,7 +666,7 @@
             const isClassValid = !config.defaultClass || availableClasses.includes(config.defaultClass.trim());
 
             // ====================================================================
-            // ▼ 匯出與預覽邏輯 ▼
+            // ▼ 匯出與預覽邏輯 (修正版) ▼
             // ====================================================================
             const generatePdfContent = () => {
                 const pdfContainer = document.getElementById('pdf-export-container');
@@ -665,22 +674,13 @@
 
                 pdfContainer.innerHTML = '';
                 
-                // 標題
+                // 1. 標題
                 const title = document.createElement('h1');
-                title.style.cssText = 'font-size: 36pt; font-weight: 900; margin-bottom: 20px; color: #000; text-align: center;';
+                title.style.cssText = 'font-size: 36pt; font-weight: 900; margin-bottom: 20px; color: #000; text-align: center; flex-shrink: 0;';
                 title.textContent = config.systemTitle || (seatMode === 'single' ? '班級座位表' : '考場座位表');
                 pdfContainer.appendChild(title);
 
-                // 講台
-                const podium = document.createElement('div');
-                podium.style.cssText = `
-                    width: 100%; height: 20mm; background-color: #f1f5f9; border: 2px solid #64748b;
-                    border-radius: 8px; display: flex; justify-content: center; align-items: center;
-                    font-size: 18pt; font-weight: 700; color: #334155; margin-bottom: 20px;
-                `;
-                podium.textContent = '講台 / 講師區 (Podium)';
-                pdfContainer.appendChild(podium);
-
+                // 2. 表格 (座位) - 現在放在中間
                 const tableWrapper = document.createElement('div');
                 tableWrapper.style.cssText = `flex-grow: 1; display: flex; flex-direction: column; justify-content: center; width: 100%;`;
                 
@@ -688,46 +688,48 @@
                 table.className = 'export-table';
                 const tbody = document.createElement('tbody');
                 
-                for (let r = 0; r < config.rows; r++) {
+                // 重要修正：教師視角，從最靠近講台的列開始（原本的 Row 0 顯示在最下方，但現在講台在下方，所以邏輯要反轉）
+                // 為了讓螢幕上的「上方第一列」變成紙張上的「下方第一列」（靠近講台），我們需要反向遍歷列。
+                // 螢幕上 Row 0 是最上面。
+                // 匯出時講台在最下面。
+                // 所以 Row 0 應該要放在表格的最下面。
+                // 因此，我們從 rows-1 開始渲染到 0，這樣 Row 0 就會是表格的最後一列（最下面）。
+                for (let r = config.rows - 1; r >= 0; r--) {
                     const tr = document.createElement('tr');
                     for (let c = 0; c < config.cols; c++) {
                         const td = document.createElement('td');
                         td.className = 'export-cell';
-                        const minHeight = Math.floor(220 / config.rows); 
+                        const minHeight = Math.floor(200 / config.rows); 
                         td.style.height = `${minHeight}mm`;
 
                         const key = `${r}-${c}`;
                         const seat = seats[key] || { number: '' };
                         
-                        // 資料處理：依據模式決定如何顯示
+                        // 資料處理
                         let displayNum = '';
                         let displayClass = '';
                         let displayStudentName = '';
 
-                        // 解析座號
                         const [classPart, seatPart] = seat.number.includes('-') 
                             ? seat.number.split('-') 
                             : ['', seat.number];
 
                         if (seatMode === 'single') {
-                            // 單一班級：只顯示座號部分 (若有 - 則取後段，若無則全取)
-                            displayNum = seatPart || seat.number; // fallback
-                            // 嘗試從名單找對應
-                            // 單一模式下，名單匹配可能比較模糊，這裡假設使用者輸入的是純座號，且名單有對應格式
-                            // 我們嘗試直接用 seat.number 找，或加上 Class Name 找 (比較複雜，暫時直接用座號找)
-                            // 為了簡單，單一模式下若名單中有 [班級] 區塊，可能對應不到。
-                            // 但為了匯出，我們盡力顯示。
+                            displayNum = seatPart || seat.number;
                             const studentData = rosterMap[seat.number] || rosterMap[`${config.systemTitle}-${seat.number}`];
                             displayStudentName = studentData?.name || '';
                         } else {
-                            // 混合模式：顯示班級與座號
                             displayClass = classPart;
                             displayNum = seatPart || seat.number;
                             const studentData = rosterMap[seat.number];
                             displayStudentName = studentData?.name || '';
                         }
                         
-                        // 1. 班級標籤 (僅混合模式)
+                        // 內容容器 (垂直置中)
+                        const contentWrapper = document.createElement('div');
+                        contentWrapper.className = 'cell-content-wrapper';
+
+                        // 班級標籤
                         if (seatMode === 'mixed' && displayClass.trim()) {
                             const classDiv = document.createElement('div');
                             classDiv.textContent = displayClass;
@@ -739,24 +741,25 @@
                             };
                             const bgColor = colorMap[color] || '#4b5563';
                             classDiv.style.cssText = `
-                                position: absolute; top: 6px; left: 6px; background-color: ${bgColor};
-                                color: white; font-size: 10pt; font-weight: bold; padding: 2px 8px; border-radius: 4px;
+                                position: absolute; top: 4px; left: 4px; background-color: ${bgColor};
+                                color: white; font-size: 8pt; font-weight: bold; padding: 2px 6px; border-radius: 4px;
                             `;
                             td.appendChild(classDiv);
                         }
 
-                        // 2. 座號
+                        // 座號 (字體修正：縮小一點以平衡)
                         const numberDiv = document.createElement('div');
-                        numberDiv.style.cssText = `font-size: 36pt; font-weight: 900; color: #1e293b; line-height: 1; margin-bottom: 8px;`;
+                        numberDiv.style.cssText = `font-size: 28pt; font-weight: 900; color: #1e293b; line-height: 1; margin-bottom: 4px;`;
                         numberDiv.textContent = displayNum.trim() || '-';
-                        td.appendChild(numberDiv);
+                        contentWrapper.appendChild(numberDiv);
 
-                        // 3. 姓名
+                        // 姓名 (字體修正：加大一點)
                         const nameDiv = document.createElement('div');
-                        nameDiv.style.cssText = `font-size: 18pt; font-weight: 700; color: #334155;`;
+                        nameDiv.style.cssText = `font-size: 16pt; font-weight: 700; color: #334155;`;
                         nameDiv.textContent = displayStudentName || '';
-                        td.appendChild(nameDiv);
+                        contentWrapper.appendChild(nameDiv);
 
+                        td.appendChild(contentWrapper);
                         tr.appendChild(td);
                     }
                     tbody.appendChild(tr);
@@ -764,6 +767,16 @@
                 table.appendChild(tbody);
                 tableWrapper.appendChild(table);
                 pdfContainer.appendChild(tableWrapper);
+
+                // 3. 講台 (移到最下方)
+                const podium = document.createElement('div');
+                podium.style.cssText = `
+                    width: 100%; height: 20mm; background-color: #f1f5f9; border: 2px solid #64748b;
+                    border-radius: 8px; display: flex; justify-content: center; align-items: center;
+                    font-size: 18pt; font-weight: 700; color: #334155; margin-top: 10px; flex-shrink: 0;
+                `;
+                podium.textContent = '講台 / 講師區 (Podium)';
+                pdfContainer.appendChild(podium);
 
                 exportRef.current = pdfContainer;
             };
@@ -778,7 +791,7 @@
                         scale: 2, logging: false, useCORS: true, backgroundColor: '#ffffff', windowWidth: 2480,
                     });
                     const imgData = canvas.toDataURL('image/png');
-                    setPreviewData(imgData); // 設定預覽資料，開啟 Modal
+                    setPreviewData(imgData); 
                 } catch (error) {
                     console.error('預覽失敗:', error);
                     alert('預覽生成失敗。');
