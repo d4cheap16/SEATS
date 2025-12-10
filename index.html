@@ -1,4 +1,592 @@
-const updateSeatNumber = (r, c, type, value) => {
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>座位編排專用系統</title>
+    
+    <!-- 設定 Favicon (網頁圖示) -->
+    <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/d4cheap16/SEATS/main/chair.png">
+
+    <!-- 載入 Tailwind CSS (樣式) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- 載入 React 和 Babel (核心運算) -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- 載入 Lucide Icons (圖示) -->
+    <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+
+    <!-- 匯出 PDF/圖片所需函式庫 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <!-- 自定義樣式 -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700;900&display=swap');
+        body { font-family: 'Noto Sans TC', monospace; }
+        .pixel-border {
+            box-shadow: 4px 4px 0px 0px rgba(0,0,0,0.3);
+        }
+        
+        /* 隱藏捲軸但保留捲動功能 */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;  /* IE and Edge */
+            scrollbar-width: none;  /* Firefox */
+        }
+
+        /* 隱藏 number input 的上下箭頭 */
+        input[type=number]::-webkit-outer-spin-button,
+        input[type=number]::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        input[type=number] {
+            -moz-appearance: textfield;
+        }
+
+        /* 班級標籤樣式 */
+        .class-badge {
+            font-size: 1.7rem; 
+            line-height: 1.2;
+            padding: 6px 8px;   
+            border-radius: 6px;
+            font-weight: 900;
+            letter-spacing: 0.05em;
+            box-shadow: 2px 2px 3px rgba(0,0,0,0.2);
+            text-shadow: 0px 1px 2px rgba(0,0,0,0.3);
+            z-index: 10;
+        }
+
+        /* === PDF 匯出容器樣式 (隱藏於底層) === */
+        #pdf-export-container {
+            width: 210mm; /* A4 寬度 */
+            min-height: 297mm; /* A4 高度 */
+            padding: 15mm;
+            background-color: white;
+            color: black;
+            position: fixed; 
+            top: 0;
+            left: 0;
+            z-index: -9999;
+            box-sizing: border-box;
+            font-family: 'Noto Sans TC', sans-serif; 
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
+            background: #fff;
+        }
+        
+        /* 匯出用的 Table 樣式 */
+        .export-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 8px; /* 座位間距 */
+            table-layout: fixed;
+            margin: 10px 0; /* 上下留白 */
+            flex-grow: 1; /* 讓表格佔據主要空間 */
+        }
+        .export-cell {
+            border: 2px solid #94a3b8; /* slate-400 */
+            background-color: #f8fafc; /* slate-50 */
+            border-radius: 8px;
+            text-align: center;
+            vertical-align: middle;
+            padding: 4px;
+            box-sizing: border-box;
+            position: relative;
+            /* 讓內容強制居中 */
+            display: table-cell;
+        }
+        
+        /* 匯出內容垂直置中容器 */
+        .cell-content-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            width: 100%;
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 h-screen w-screen overflow-hidden">
+    <div id="root" class="h-full w-full"></div>
+    <!-- PDF 匯出用的隱藏容器 -->
+    <div id="pdf-export-container"></div>
+
+    <!-- 主程式邏輯 -->
+    <script type="text/babel" data-type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
+        import { getFirestore, doc, setDoc, deleteDoc, onSnapshot, collection, getDocs } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
+
+        // ==========================================
+        // ▼ 您的 Firebase Config ▼
+        // ==========================================
+        const firebaseConfig = {
+          apiKey: "AIzaSyBd1OUQ2wwEOSIezzhsuuYcjZSXJPn-WnI",
+          authDomain: "examseat-508e9.firebaseapp.com",
+          projectId: "examseat-508e9",
+          storageBucket: "examseat-508e9.firebasestorage.app",
+          messagingSenderId: "959964513566",
+          appId: "1:959964513566:web:88dac9c40c5993a90a750f"
+        };
+        // ==========================================
+
+        const isFirebaseConfigured = firebaseConfig.apiKey && firebaseConfig.projectId;
+        let app, auth, db;
+        if (isFirebaseConfigured) {
+            app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+        }
+        const appId = "examseat-508e9";
+
+        const { useState, useEffect, useRef, useMemo } = React;
+
+        const Icon = ({ name, size = 24, className = "" }) => {
+            useEffect(() => {
+                if (window.lucide && typeof window.lucide.createIcons === 'function') {
+                    window.lucide.createIcons();
+                }
+            }, [name]);
+            return <i data-lucide={name} width={size} height={size} className={className}></i>;
+        };
+
+        // --- Constants ---
+        const ADMIN_HASH = "667d3b4405324cb53a755b5eb6c0d5370322527a32f75964d9a040230d273033";
+
+        // 班級顏色池
+        const CLASS_COLORS = [
+            'bg-blue-600', 'bg-emerald-600', 'bg-violet-600', 
+            'bg-orange-600', 'bg-pink-600', 'bg-cyan-600', 
+            'bg-fuchsia-600', 'bg-lime-700', 'bg-sky-600', 'bg-indigo-600'
+        ];
+
+        // 預設名單
+        const DEFAULT_ROSTER = `[高一OO班]
+01\t王小美
+02\t王小明
+03\t陳小華
+04\t林大衛
+05\t張曉芬
+06\t李大同
+07\t黃小玉
+08\t周杰倫
+09\t蔡依林
+10\t五月天`;
+        
+        // --- Helpers ---
+        const getClassColor = (className) => {
+            if (!className) return 'bg-slate-800';
+            let hash = 0;
+            for (let i = 0; i < className.length; i++) {
+                hash = className.charCodeAt(i) + ((hash << 5) - hash);
+            }
+            const index = Math.abs(hash) % CLASS_COLORS.length;
+            return CLASS_COLORS[index];
+        };
+
+        async function sha256(message) {
+            const msgBuffer = new TextEncoder().encode(message);
+            const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+            const hashArray = Array.from(new Uint8Array(hashBuffer)); 
+            return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+
+        // --- Components ---
+        
+        const AdminPanel = ({ onBack, onEnterClass }) => {
+            const [classList, setClassList] = useState([]);
+            const [loading, setLoading] = useState(true);
+
+            const fetchClasses = async () => {
+                if (!db) return;
+                try {
+                    const querySnapshot = await getDocs(collection(db, 'artifacts', appId, 'public', 'data', 'classrooms'));
+                    const list = [];
+                    querySnapshot.forEach((doc) => {
+                        const data = doc.data();
+                        if (data.config) {
+                             list.push({
+                                id: doc.id,
+                                lastUpdated: data.lastUpdated ? new Date(data.lastUpdated).toLocaleString() : '未知',
+                                ...data
+                            });
+                        }
+                    });
+                    list.sort((a, b) => new Date(b.lastUpdated || 0) - new Date(a.lastUpdated || 0));
+                    setClassList(list);
+                } catch (error) {
+                    console.error("讀取失敗:", error);
+                    alert("讀取失敗，請確認資料庫權限設定。");
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            useEffect(() => { fetchClasses(); }, []);
+
+            const handleDelete = async (id) => {
+                if (confirm(`確定要永久刪除班級「${id}」嗎？`)) {
+                    try {
+                        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'classrooms', id));
+                        setClassList(prev => prev.filter(c => c.id !== id));
+                    } catch (error) { alert("刪除失敗"); }
+                }
+            };
+
+            return (
+                <div className="flex flex-col items-center min-h-screen bg-slate-900 text-slate-100 p-4 font-mono">
+                    <div className="w-full max-w-4xl">
+                        <div className="flex justify-between items-center mb-6 bg-red-900/50 p-4 rounded-xl border-l-4 border-red-500">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2 bg-red-600 rounded-lg shadow-lg"><Icon name="shield-alert" size={32} className="text-white" /></div>
+                                <div>
+                                    <h1 className="text-2xl font-black tracking-widest text-white">ADMIN DASHBOARD</h1>
+                                    <p className="text-red-200 text-sm">系統管理介面</p>
+                                </div>
+                            </div>
+                            <button onClick={onBack} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg flex items-center gap-2 font-bold transition-all">
+                                <Icon name="log-out" size={18} /> 登出
+                            </button>
+                        </div>
+
+                        <div className="bg-slate-800 rounded-xl pixel-border border-4 border-gray-700 overflow-hidden shadow-2xl">
+                            <div className="p-4 border-b-2 border-gray-700 flex justify-between items-center bg-slate-750">
+                                <h2 className="font-bold text-lg flex items-center gap-2"><Icon name="list" /> 班級列表 ({classList.length})</h2>
+                                <button onClick={fetchClasses} className="p-2 hover:bg-slate-600 rounded-full"><Icon name="refresh-cw" size={18} /></button>
+                            </div>
+                            
+                            {loading ? (
+                                <div className="p-8 text-center text-gray-400 flex flex-col items-center gap-2">
+                                    <Icon name="loader-2" className="animate-spin" size={32} />
+                                    讀取中...
+                                </div>
+                            ) : classList.length === 0 ? (
+                                <div className="p-8 text-center text-gray-500">無班級資料</div>
+                            ) : (
+                                <div className="max-h-[70vh] overflow-y-auto no-scrollbar">
+                                    <table className="w-full text-left border-collapse">
+                                        <thead className="bg-slate-900 text-gray-400 sticky top-0 z-10 shadow-md">
+                                            <tr>
+                                                <th className="p-4 font-bold">班級代碼</th>
+                                                <th className="p-4 font-bold hidden md:table-cell">顯示名稱</th>
+                                                <th className="p-4 font-bold hidden sm:table-cell">最後更新</th>
+                                                <th className="p-4 font-bold text-right">操作</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-700">
+                                            {classList.map(cls => (
+                                                <tr key={cls.id} className="hover:bg-slate-700/50 transition-colors">
+                                                    <td className="p-4 font-bold text-yellow-400 font-mono text-lg">{cls.id}</td>
+                                                    <td className="p-4 text-gray-300 hidden md:table-cell">{cls.config?.systemTitle || '-'}</td>
+                                                    <td className="p-4 text-gray-500 text-sm hidden sm:table-cell">{cls.lastUpdated}</td>
+                                                    <td className="p-4 text-right space-x-2">
+                                                        <button 
+                                                            onClick={() => onEnterClass(cls.id)}
+                                                            className="inline-flex items-center gap-1 px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm font-bold"
+                                                        >
+                                                            <Icon name="log-in" size={14} /> 進入
+                                                        </button>
+                                                        <button 
+                                                            onClick={() => handleDelete(cls.id)}
+                                                            className="inline-flex items-center gap-1 px-3 py-1 bg-red-600 hover:bg-red-500 text-white rounded text-sm font-bold"
+                                                        >
+                                                            <Icon name="trash-2" size={14} /> 刪除
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const LoginScreen = ({ onLogin, onAdminLogin }) => {
+            const [input, setInput] = useState('');
+            const [error, setError] = useState('');
+
+            // 自動填入最後一次的班級代碼
+            useEffect(() => {
+                const lastId = localStorage.getItem('last_active_classroom');
+                if (lastId) {
+                    setInput(lastId);
+                }
+            }, []);
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                const code = input.trim();
+                if (!code) { setError('請輸入代碼'); return; }
+                
+                try {
+                    if (window.crypto && window.crypto.subtle) {
+                        const hash = await sha256(code);
+                        if (hash === ADMIN_HASH) {
+                            onAdminLogin();
+                            return;
+                        }
+                    } else {
+                        if (code === 'Makima777') {
+                             onAdminLogin();
+                             return;
+                        }
+                    }
+                } catch (e) {
+                    console.warn("Hashing check skipped, using fallback", e);
+                    if (code === 'Makima777') {
+                         onAdminLogin();
+                         return;
+                    }
+                }
+
+                if (!/^[a-zA-Z0-9_\u4e00-\u9fa5]+$/.test(code)) {
+                    setError('只能包含中文、英文、數字或底線');
+                    return;
+                }
+                
+                // 儲存這次的代碼
+                localStorage.setItem('last_active_classroom', code);
+                onLogin(code);
+            };
+
+            return (
+                <div className="flex flex-col items-center justify-center min-h-screen bg-slate-900 text-slate-100 p-4 select-none">
+                    <div className="bg-slate-800 p-8 rounded-xl pixel-border border-4 border-gray-700 w-full max-w-md text-center shadow-2xl">
+                        <div className="flex justify-center mb-6"><div className="p-4 bg-yellow-400 rounded-full border-4 border-yellow-600 shadow-lg"><Icon name="layout-grid" size={48} className="text-yellow-900" /></div></div>
+                        <h1 className="text-3xl font-black tracking-widest text-white mb-2">座位編排系統</h1>
+                        <p className="text-gray-400 mb-8 text-sm">請輸入代碼以建立或進入 (可做為班級或考場ID)</p>
+                        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+                            <div className="relative">
+                                <Icon name="key" size={20} className="absolute left-3 top-3 text-gray-500" />
+                                <input type="text" value={input} onChange={(e) => {setInput(e.target.value); setError('');}} placeholder="例如：Class302" className="w-full bg-slate-700 border-2 border-slate-600 rounded-lg py-3 pl-10 pr-4 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:bg-slate-600 transition-colors text-lg font-bold select-text" autoFocus />
+                            </div>
+                            {error && <p className="text-red-400 text-sm font-bold animate-pulse">{error}</p>}
+                            <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-lg border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 transition-all flex items-center justify-center gap-2 mt-2"><Icon name="log-in" size={20} /> 進入編輯</button>
+                        </form>
+                    </div>
+                </div>
+            );
+        };
+
+        const App = () => {
+            const [user, setUser] = useState(null);
+            const [syncStatus, setSyncStatus] = useState('idle');
+            const [config, setConfig] = useState({ rows: 5, cols: 7, systemTitle: '未命名', defaultClass: '' });
+            const [rosterText, setRosterText] = useState(DEFAULT_ROSTER);
+            const [rosterMap, setRosterMap] = useState({});
+            const [availableClasses, setAvailableClasses] = useState([]);
+            const [seats, setSeats] = useState({});
+            const [showSettings, setShowSettings] = useState(false);
+            const [activeClassroom, setActiveClassroom] = useState(null);
+            const [isAdminMode, setIsAdminMode] = useState(false);
+            const [dataLoaded, setDataLoaded] = useState(false);
+            const [seatMode, setSeatMode] = useState('single'); // 'single' | 'mixed'
+            const [previewData, setPreviewData] = useState(null); // 儲存預覽圖片 DataURL
+            const inputRefs = useRef({});
+
+            const [helperClassName, setHelperClassName] = useState('');
+            const [helperStudentList, setHelperStudentList] = useState('');
+            const exportRef = useRef(null);
+            const [isExporting, setIsExporting] = useState(false);
+
+            const duplicateNumbers = useMemo(() => {
+                const counts = {};
+                Object.values(seats).forEach(s => { if (s.number) counts[s.number] = (counts[s.number] || 0) + 1; });
+                return new Set(Object.keys(counts).filter(n => counts[n] > 1));
+            }, [seats]);
+
+            useEffect(() => {
+                const initAuth = async () => {
+                    try {
+                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                            await signInWithCustomToken(auth, __initial_auth_token);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                    } catch (err) {
+                        console.error("Auth failed", err);
+                        setSyncStatus('error');
+                    }
+                };
+                initAuth();
+                const unsubscribe = onAuthStateChanged(auth, setUser);
+                return () => unsubscribe();
+            }, []);
+
+            useEffect(() => {
+                if (!activeClassroom) return;
+                
+                setDataLoaded(false);
+
+                const loadLocal = () => {
+                    const savedLocal = localStorage.getItem(`examMonitorData_${activeClassroom}`);
+                    if (savedLocal) {
+                        try {
+                            const parsed = JSON.parse(savedLocal);
+                            if (parsed.config) setConfig(prev => ({...prev, ...parsed.config}));
+                            if (parsed.rosterText) setRosterText(parsed.rosterText);
+                            if (parsed.seats) setSeats(parsed.seats);
+                            if (parsed.seatMode) setSeatMode(parsed.seatMode);
+                        } catch(e) {}
+                    }
+                    setDataLoaded(true);
+                };
+
+                if (!isFirebaseConfigured || !user) {
+                    loadLocal();
+                    return;
+                }
+
+                setSyncStatus('loading');
+                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'classrooms', activeClassroom);
+                const unsubscribe = onSnapshot(docRef, (docSnap) => {
+                    if (docSnap.exists()) {
+                        const data = docSnap.data();
+                        if (data.config) setConfig(prev => ({...prev, ...data.config}));
+                        if (data.rosterText) setRosterText(data.rosterText);
+                        if (data.seats) setSeats(data.seats);
+                        if (data.seatMode) setSeatMode(data.seatMode);
+                        setSyncStatus('idle');
+                    } else {
+                        const savedLocal = localStorage.getItem(`examMonitorData_${activeClassroom}`);
+                        if (savedLocal) {
+                            try {
+                                const parsed = JSON.parse(savedLocal);
+                                setConfig(prev => ({...prev, ...(parsed.config || {})}));
+                                setRosterText(prev => parsed.rosterText || prev);
+                                setSeats(prev => parsed.seats || prev);
+                                if (parsed.seatMode) setSeatMode(parsed.seatMode);
+                            } catch(e){}
+                        }
+                        setSyncStatus('idle');
+                    }
+                    setDataLoaded(true);
+                }, (error) => { 
+                    console.error("Sync error", error); 
+                    setSyncStatus('error');
+                    loadLocal();
+                });
+                return () => unsubscribe();
+            }, [user, activeClassroom]);
+
+            useEffect(() => {
+                if (!activeClassroom || !dataLoaded) return; 
+
+                const timer = setTimeout(() => {
+                    const dataToSave = { config, rosterText, seats, seatMode };
+                    localStorage.setItem(`examMonitorData_${activeClassroom}`, JSON.stringify(dataToSave));
+                }, 1000); 
+
+                return () => clearTimeout(timer);
+            }, [activeClassroom, config, rosterText, seats, seatMode, dataLoaded]);
+
+            // 名單解析邏輯
+            useEffect(() => {
+                const lines = rosterText.split('\n');
+                const newMap = {};
+                const foundClasses = new Set();
+                let currentClass = null;
+
+                lines.forEach((line) => {
+                    const trimmedLine = line.trim();
+                    if (!trimmedLine) return;
+
+                    const classMatch = trimmedLine.match(/^\[(.*)\]$/);
+                    if (classMatch) {
+                        currentClass = classMatch[1].trim();
+                        foundClasses.add(currentClass);
+                        return;
+                    }
+
+                    const parts = trimmedLine.split(/[\t,，\s]+/);
+                    if (parts.length === 1 && !/^\d+$/.test(parts[0])) {
+                        currentClass = parts[0];
+                        foundClasses.add(currentClass);
+                        return;
+                    }
+
+                    if (parts.length >= 2) {
+                        const seatPart = parts[0]; 
+                        const namePart = parts[1]; 
+                        
+                        let uniqueId = seatPart;
+                        let className = null;
+
+                        const isPureNumber = /^\d+$/.test(seatPart);
+                        
+                        if (currentClass && isPureNumber) {
+                            uniqueId = `${currentClass}-${seatPart}`;
+                            className = currentClass;
+                        } else if (seatPart.includes('-')) {
+                            const splitId = seatPart.split('-');
+                            className = splitId[0];
+                        } else if (currentClass) {
+                             uniqueId = `${currentClass}-${seatPart}`;
+                             className = currentClass;
+                        }
+
+                        newMap[uniqueId] = {
+                            name: namePart,
+                            className: className
+                        };
+                    }
+                });
+                setRosterMap(newMap);
+                setAvailableClasses(Array.from(foundClasses).sort());
+            }, [rosterText]);
+
+
+            const saveToCloud = async () => {
+                if (!activeClassroom) return;
+                localStorage.setItem(`examMonitorData_${activeClassroom}`, JSON.stringify({ config, rosterText, seats, seatMode }));
+                
+                if (!isFirebaseConfigured || !user) { alert('已儲存至本地 (未設定 Firebase)'); return; }
+                setSyncStatus('saving');
+                try {
+                    const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'classrooms', activeClassroom);
+                    await setDoc(docRef, { config, rosterText, seats, seatMode, lastUpdated: new Date().toISOString(), updatedBy: user.uid });
+                    setSyncStatus('saved');
+                    setTimeout(() => setSyncStatus('idle'), 2000);
+                } catch (e) { console.error("Save failed:", e); setSyncStatus('error'); alert(`雲端儲存失敗: ${e.message}\n請檢查 Firebase 規則`); }
+            };
+
+            const deleteClassroomData = async () => {
+                if (!activeClassroom) return;
+                const confirmCode = prompt(`警告：這將會永久刪除「${activeClassroom}」的所有資料！\n\n請輸入「${activeClassroom}」以確認：`);
+                if (confirmCode === activeClassroom) {
+                    try {
+                        setSyncStatus('saving');
+                        if (isFirebaseConfigured && user) {
+                            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'classrooms', activeClassroom));
+                        }
+                        localStorage.removeItem(`examMonitorData_${activeClassroom}`);
+                        alert('資料已刪除。');
+                        setSeats({}); setRosterText(DEFAULT_ROSTER); setActiveClassroom(null);
+                    } catch (e) { console.error(e); alert('刪除失敗'); setSyncStatus('error'); }
+                }
+            };
+
+            const handleClearSeats = () => {
+                if (confirm('確定要清空所有座位安排嗎？\n\n此動作將移除所有格子內的座號與班級設定，以便重新安排。')) {
+                    setSeats({});
+                }
+            };
+
+            const updateSeatNumber = (r, c, type, value) => {
                 const key = `${r}-${c}`;
                 const currentSeat = seats[key] || { number: '', status: 'empty' };
                 const currentVal = currentSeat.number || '';
@@ -9,9 +597,11 @@ const updateSeatNumber = (r, c, type, value) => {
                 
                 if (seatMode === 'single') {
                     if (type === 'seat') {
+                        // 單一模式：直接儲存輸入值，不進行拆解
                         setSeats(prev => ({ ...prev, [key]: { number: value } }));
                     }
                 } else {
+                    // 混合模式：保留原有邏輯
                     if (!currentVal.includes('-')) {
                         currentNum = currentVal;
                         currentClass = '';
@@ -78,7 +668,7 @@ const updateSeatNumber = (r, c, type, value) => {
             const isClassValid = !config.defaultClass || availableClasses.includes(config.defaultClass.trim());
 
             // ====================================================================
-            // ▼ 匯出與預覽邏輯 (修正版) ▼
+            // ▼ 匯出與預覽邏輯 (最終修正版) ▼
             // ====================================================================
             const generatePdfContent = () => {
                 const pdfContainer = document.getElementById('pdf-export-container');
@@ -433,3 +1023,153 @@ const updateSeatNumber = (r, c, type, value) => {
                                 </div>
                             </div>
                         </div>
+
+                        {/* Right Section: Roster Management */}
+                        <div className="w-96 flex flex-col gap-4 shrink-0 h-full">
+                            <div className="bg-amber-50 rounded-xl flex-1 p-4 pixel-border flex flex-col text-slate-800 overflow-hidden border-4 border-gray-700">
+                                <h3 className="font-bold text-xl border-b-4 border-amber-200 pb-2 mb-3 flex items-center gap-2 text-amber-800 shrink-0"><Icon name="users" size={24} /> 班級名單與學生資訊</h3>
+                                <p className="text-sm text-gray-500 mb-2">已解析班級: {availableClasses.join(', ') || '無'}</p>
+                                <div className="flex-1 overflow-y-auto no-scrollbar pr-2">
+                                    <pre className="text-xs font-mono bg-white p-2 rounded border border-gray-300 whitespace-pre-wrap">{rosterText || '請在設定中輸入名單'}</pre>
+                                </div>
+                                <div className="shrink-0 mt-4 pt-2 border-t border-gray-300">
+                                    <button onClick={() => setShowSettings(true)} className="w-full py-2 bg-blue-600 text-white rounded font-bold hover:bg-blue-700 flex items-center justify-center gap-2">
+                                        <Icon name="edit" size={16} /> 編輯名單與考場大小
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* 預覽 Modal */}
+                    {previewData && (
+                        <div className="fixed inset-0 bg-black/90 z-50 flex flex-col items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
+                            <div className="bg-white rounded-lg shadow-2xl p-4 w-full max-w-4xl h-full max-h-[90vh] flex flex-col">
+                                <div className="flex justify-between items-center mb-4 border-b pb-2">
+                                    <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                                        <Icon name="eye" className="text-blue-600" /> 匯出預覽 (A4)
+                                    </h2>
+                                    <button onClick={() => setPreviewData(null)} className="text-gray-500 hover:text-red-500 transition-colors">
+                                        <Icon name="x" size={24} />
+                                    </button>
+                                </div>
+                                
+                                <div className="flex-1 bg-gray-100 overflow-auto rounded border border-gray-300 flex items-center justify-center p-4">
+                                    <img src={previewData} className="shadow-lg max-w-full h-auto object-contain border bg-white" alt="預覽圖" />
+                                </div>
+
+                                <div className="mt-4 flex justify-end gap-3 pt-2 border-t">
+                                    <button onClick={() => setPreviewData(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded font-bold">取消</button>
+                                    <button onClick={downloadImage} className="px-4 py-2 bg-green-600 text-white rounded font-bold hover:bg-green-700 flex items-center gap-2 shadow">
+                                        <Icon name="image" size={18} /> 下載圖片 (PNG)
+                                    </button>
+                                    <button onClick={downloadPdf} className="px-4 py-2 bg-red-600 text-white rounded font-bold hover:bg-red-700 flex items-center gap-2 shadow">
+                                        <Icon name="file-text" size={18} /> 下載 PDF
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {showSettings && (
+                        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+                            <div className="bg-white rounded-xl max-w-2xl w-full p-6 shadow-2xl flex flex-col max-h-[90vh]">
+                                <div className="flex justify-between items-center mb-4"><h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Icon name="settings" className="text-gray-600" /> 考場與資料庫設定</h2><button onClick={() => setShowSettings(false)} className="text-gray-500 hover:text-gray-800">✕</button></div>
+                                <div className="overflow-y-auto flex-1 space-y-6 pr-2">
+                                    <section className="bg-blue-50 p-4 rounded-lg border border-blue-100">
+                                        <h3 className="font-bold text-blue-800 mb-2 flex items-center gap-2"><Icon name="cloud" className="text-blue-600" /> 雲端資料同步 (Firebase)</h3>
+                                        {isFirebaseConfigured ? (
+                                            <>
+                                                <p className="text-sm text-blue-600 mb-3">資料將自動儲存在您的 Firebase 帳號下。</p>
+                                                <button onClick={saveToCloud} disabled={syncStatus === 'saving'} className="flex-1 bg-blue-600 text-white px-4 py-2 rounded flex items-center justify-center gap-2 hover:bg-blue-700 disabled:opacity-50"><Icon name="cloud-upload" size={18} />{syncStatus === 'saving' ? '儲存中...' : '手動儲存目前設定'}</button>
+                                            </>
+                                        ) : (
+                                            <p className="text-sm text-red-600">尚未設定 Firebase Config。</p>
+                                        )}
+                                    </section>
+                                    <section className="bg-gray-50 p-4 rounded-lg">
+                                        <h3 className="font-bold text-gray-700 mb-2">A. 座位排列</h3>
+                                        <div className="flex gap-4">
+                                            <div className="flex flex-col gap-1">
+                                                <label className="text-sm text-gray-500">列數</label>
+                                                <div className="flex items-center gap-2">
+                                                    <button onClick={() => setConfig({...config, rows: Math.max(1, config.rows - 1)})} className="p-2 bg-gray-700 text-white rounded-lg hover:bg-gray-800 active:scale-95 transition-all"><Icon name="minus" size={18}/></button>
+                                                    <input type="number" className="w-16 text-center border rounded p-1 text-black font-bold" value={config.rows} onChange={(e) => setConfig({...config, rows: parseInt(e.target.value) || 1})} />
+                                                    <button onClick={() => setConfig({...config, rows: config.rows + 1})} className="p-2 bg-gray-700 text-white rounded-lg hover:bg-gray-800 active:scale-95 transition-all"><Icon name="plus" size={18}/></button>
+                                                </div>
+                                            </div>
+                                            <div className="flex flex-col gap-1">
+                                                <label className="text-sm text-gray-500">行數</label>
+                                                <div className="flex items-center gap-2">
+                                                    <button onClick={() => setConfig({...config, cols: Math.max(1, config.cols - 1)})} className="p-2 bg-gray-700 text-white rounded-lg hover:bg-gray-800 active:scale-95 transition-all"><Icon name="minus" size={18}/></button>
+                                                    <input type="number" className="w-16 text-center border rounded p-1 text-black font-bold" value={config.cols} onChange={(e) => setConfig({...config, cols: parseInt(e.target.value) || 1})} />
+                                                    <button onClick={() => setConfig({...config, cols: config.cols + 1})} className="p-2 bg-gray-700 text-white rounded-lg hover:bg-gray-800 active:scale-95 transition-all"><Icon name="plus" size={18}/></button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </section>
+                                    
+                                    <section>
+                                        <h3 className="font-bold text-gray-700 mb-2 border-l-4 border-green-500 pl-2">B. 班級名單</h3>
+                                        <div className="mb-2 space-y-4">
+                                            <div className="bg-indigo-50 p-3 rounded-lg border border-indigo-100 mb-3">
+                                                <label className="font-bold text-indigo-800 mb-2 block flex items-center gap-2">
+                                                    <Icon name="wand-2" size={16} /> 快速新增班級 (Class Generator)
+                                                </label>
+                                                <div className="flex gap-2 mb-2">
+                                                    <div className="flex-1">
+                                                        <input 
+                                                            type="text" 
+                                                            className="w-full border border-indigo-200 rounded px-3 py-2 text-sm text-black placeholder-gray-400 focus:outline-none focus:border-indigo-500"
+                                                            placeholder="班級名稱 (例如: 301, 高一仁...)" 
+                                                            value={helperClassName}
+                                                            onChange={(e) => setHelperClassName(e.target.value)}
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <textarea 
+                                                    className="w-full h-24 p-3 border border-indigo-200 rounded font-mono text-sm bg-white focus:outline-none focus:border-indigo-500 text-gray-800 mb-2 placeholder-gray-400" 
+                                                    placeholder="在此貼上該班的座號與姓名..." 
+                                                    value={helperStudentList} 
+                                                    onChange={(e) => setHelperStudentList(e.target.value)} 
+                                                />
+                                                <button 
+                                                    onClick={handleAddClassToRoster}
+                                                    disabled={!helperStudentList.trim()}
+                                                    className="w-full bg-indigo-600 text-white py-2 rounded text-sm font-bold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-sm transition-all"
+                                                >
+                                                    <Icon name="plus-circle" size={16} /> 加入到下方總名單
+                                                </button>
+                                            </div>
+
+                                            <div className="bg-gray-50 p-3 rounded-lg border border-gray-200">
+                                                <label className="text-sm font-bold text-gray-600 block mb-1">完整名單內容 (格式: [班級]\n座號\t姓名)</label>
+                                                <textarea 
+                                                    className="w-full h-32 p-3 border rounded font-mono text-sm bg-white focus:ring-2 focus:ring-green-500 outline-none text-gray-800 select-text" 
+                                                    placeholder="[班級名稱] (換行) [座號] [姓名]..." 
+                                                    value={rosterText} 
+                                                    onChange={(e) => setRosterText(e.target.value)} 
+                                                />
+                                            </div>
+                                        </div>
+                                    </section>
+                                    
+                                    <section className="bg-red-50 p-4 rounded-lg border border-red-200 mt-4">
+                                        <h3 className="font-bold text-red-800 mb-2 flex items-center gap-2"><Icon name="shield-alert" className="text-red-600" /> 管理員專區</h3>
+                                        <p className="text-sm text-red-700 mb-3">此操作將永久刪除當前考場「{activeClassroom}」的所有資料。</p>
+                                        <button onClick={deleteClassroomData} className="w-full bg-red-600 text-white px-4 py-2 rounded flex items-center justify-center gap-2 hover:bg-red-700 font-bold"><Icon name="trash-2" size={18} /> 刪除此考場資料</button>
+                                    </section>
+                                </div>
+                                <div className="mt-6 flex justify-between items-center pt-4 border-t"><span className="text-xs text-gray-400">{user ? `ID: ${user.uid.slice(0,8)}...` : '本地模式'}</span><button onClick={() => {saveToCloud(); setShowSettings(false);}} className="px-6 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 shadow-lg">儲存並關閉</button></div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
