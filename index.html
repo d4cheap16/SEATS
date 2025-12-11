@@ -745,45 +745,56 @@
 
             const isClassValid = !config.defaultClass || availableClasses.includes(config.defaultClass.trim());
 
-            // 輔助函式：尋找學生資料 (通用模糊搜尋)
+            // 輔助函式：尋找學生資料 (通用模糊搜尋 - 修正版)
             const findStudentData = (query) => {
                 if (!query) return null;
+                // 1. 嘗試完全匹配 (Exact Match)
                 if (rosterMap[query]) return rosterMap[query];
 
-                const queryParts = query.split('-');
+                // 2. 解析查詢字串 (從右邊最後一個 '-' 切割，以支援班級名稱含 Dash 的情況)
+                const str = query.toString().trim();
+                const lastDashIndex = str.lastIndexOf('-');
+                
                 let queryClass = null;
                 let queryNum = null;
 
-                if (queryParts.length > 1) {
-                    queryClass = queryParts[0];
-                    queryNum = parseInt(queryParts[1]); // 轉數字去零
+                if (lastDashIndex !== -1) {
+                    queryClass = str.substring(0, lastDashIndex).trim();
+                    const numPart = str.substring(lastDashIndex + 1).trim();
+                    queryNum = parseInt(numPart, 10);
                 } else {
-                    queryNum = parseInt(queryParts[0]);
+                    queryNum = parseInt(str, 10);
                 }
 
                 if (isNaN(queryNum)) return null;
 
+                // 3. 在名單中模糊搜尋
                 const foundKey = Object.keys(rosterMap).find(key => {
-                    const keyParts = key.split('-');
+                    const kStr = key.toString();
+                    const kLastDash = kStr.lastIndexOf('-');
+                    
                     let keyClass = null;
                     let keyNum = null;
 
-                    if (keyParts.length > 1) {
-                        keyClass = keyParts[0];
-                        keyNum = parseInt(keyParts[1]);
+                    if (kLastDash !== -1) {
+                        keyClass = kStr.substring(0, kLastDash).trim();
+                        const kNumPart = kStr.substring(kLastDash + 1).trim();
+                        keyNum = parseInt(kNumPart, 10);
                     } else {
-                        keyNum = parseInt(keyParts[0]);
+                        keyNum = parseInt(kStr, 10);
                     }
 
+                    // 比對邏輯
                     if (queryClass) {
+                        // 如果查詢有指定班級，班級與座號都要對
                         return keyClass === queryClass && keyNum === queryNum;
                     } else {
+                        // 如果查詢沒指定班級 (只打座號)，只要座號對就好
                         return keyNum === queryNum;
                     }
                 });
 
-                if (foundKey) return rosterMap[foundKey];
-                return null;
+                return foundKey ? rosterMap[foundKey] : null;
             };
 
             // ====================================================================
@@ -827,17 +838,26 @@
                         let displayClass = '';
                         let displayStudentName = '';
 
-                        const [classPart, seatPart] = seat.number.includes('-') 
-                            ? seat.number.split('-') 
-                            : ['', seat.number];
-
+                        // 統一使用 robust 的切割邏輯
                         if (seatMode === 'single') {
-                            displayNum = seatPart || seat.number;
-                            const studentData = findStudentData(displayNum); 
+                            displayNum = seat.number;
+                            // 可能包含班級前綴 (如 301-5)，但單一模式只顯示座號
+                            if (seat.number && seat.number.toString().includes('-')) {
+                                const lastDash = seat.number.lastIndexOf('-');
+                                if (lastDash > 0) displayNum = seat.number.substring(lastDash + 1);
+                            }
+                            const studentData = findStudentData(seat.number); 
                             displayStudentName = studentData?.name || '';
                         } else {
-                            displayClass = classPart;
-                            displayNum = seatPart || seat.number;
+                            // 混合模式
+                            displayNum = seat.number;
+                            if (seat.number && seat.number.toString().includes('-')) {
+                                const lastDash = seat.number.lastIndexOf('-');
+                                if (lastDash > 0) {
+                                    displayClass = seat.number.substring(0, lastDash);
+                                    displayNum = seat.number.substring(lastDash + 1);
+                                }
+                            }
                             const studentData = findStudentData(seat.number); 
                             displayStudentName = studentData?.name || '';
                         }
@@ -888,7 +908,7 @@
                         // 座號
                         const numberDiv = document.createElement('div');
                         numberDiv.style.cssText = `font-size: 28pt; font-weight: 900; color: #1e293b; line-height: 1; margin-bottom: 4px;`;
-                        numberDiv.textContent = displayNum.trim() || '-';
+                        numberDiv.textContent = displayNum.toString().trim() || '-';
                         contentWrapper.appendChild(numberDiv);
 
                         // 姓名
@@ -1044,22 +1064,26 @@
                                             const key = `${r}-${c}`;
                                             const seat = seats[key] || { number: '' };
                                             
-                                            // 找學生資料
+                                            // 找學生資料 (修正：統一使用 findStudentData)
                                             let studentName = '';
-                                            if (seatMode === 'single') {
-                                                const data = findStudentData(seat.number);
-                                                studentName = data?.name || '';
-                                            } else {
-                                                // 混合模式也使用 Smart Lookup
-                                                const data = findStudentData(seat.number);
-                                                studentName = data?.name || '';
-                                            }
+                                            const data = findStudentData(seat.number);
+                                            studentName = data?.name || '';
                                             
                                             const isDuplicate = seat.number && duplicateNumbers.has(normalizeSeatId(seat.number));
 
-                                            const [editClass, editSeat] = seat.number.includes('-') 
-                                                ? seat.number.split('-') 
-                                                : ['', seat.number];
+                                            // === 修正切割顯示邏輯 ===
+                                            let editClass = '';
+                                            let editSeat = seat.number;
+                                            
+                                            // 只有當包含 '-' 且不是在開頭時才進行切割
+                                            if (seat.number && seat.number.toString().includes('-')) {
+                                                const lastDash = seat.number.lastIndexOf('-');
+                                                if (lastDash > 0) {
+                                                    editClass = seat.number.substring(0, lastDash);
+                                                    editSeat = seat.number.substring(lastDash + 1);
+                                                }
+                                            }
+                                            // ======================
 
                                             const isCellClassValid = !editClass || availableClasses.includes(editClass.trim());
 
