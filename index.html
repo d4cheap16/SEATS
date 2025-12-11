@@ -342,7 +342,8 @@
             const [selectedMode, setSelectedMode] = useState('single');
 
             useEffect(() => {
-                const lastId = localStorage.getItem('last_active_classroom');
+                // [修正] 改用 classSeat 專用 key
+                const lastId = localStorage.getItem('last_active_class_seat');
                 if (lastId) {
                     setInput(lastId);
                 }
@@ -379,7 +380,8 @@
                     return;
                 }
                 
-                localStorage.setItem('last_active_classroom', code);
+                // [修正] 改用 classSeat 專用 key
+                localStorage.setItem('last_active_class_seat', code);
                 onLogin(code, selectedMode);
             };
 
@@ -487,8 +489,8 @@
                 setActiveClassroom(code);
                 setSeatMode(mode);
                 
-                // 1. 立即更新本地存檔
-                const savedLocal = localStorage.getItem(`examMonitorData_${code}`);
+                // 1. 立即更新本地存檔 [修正：使用 classSeatData_ 前綴]
+                const savedLocal = localStorage.getItem(`classSeatData_${code}`);
                 let newData = { seatMode: mode };
                 if (savedLocal) {
                     try {
@@ -496,7 +498,7 @@
                         newData = { ...parsed, seatMode: mode };
                     } catch(e) {}
                 }
-                localStorage.setItem(`examMonitorData_${code}`, JSON.stringify(newData));
+                localStorage.setItem(`classSeatData_${code}`, JSON.stringify(newData));
 
                 // 2. 嘗試更新雲端 (如果已連線)
                 if (isFirebaseConfigured && auth.currentUser) {
@@ -512,7 +514,8 @@
                 setDataLoaded(false);
 
                 const loadLocal = () => {
-                    const savedLocal = localStorage.getItem(`examMonitorData_${activeClassroom}`);
+                    // [修正] 改用 classSeatData_
+                    const savedLocal = localStorage.getItem(`classSeatData_${activeClassroom}`);
                     if (savedLocal) {
                         try {
                             const parsed = JSON.parse(savedLocal);
@@ -541,8 +544,8 @@
                         if (data.seatMode) setSeatMode(data.seatMode);
                         setSyncStatus('idle');
                     } else {
-                        // 雲端沒資料，讀本地
-                        const savedLocal = localStorage.getItem(`examMonitorData_${activeClassroom}`);
+                        // 雲端沒資料，讀本地 [修正：改用 classSeatData_]
+                        const savedLocal = localStorage.getItem(`classSeatData_${activeClassroom}`);
                         if (savedLocal) {
                             try {
                                 const parsed = JSON.parse(savedLocal);
@@ -568,7 +571,8 @@
 
                 const timer = setTimeout(() => {
                     const dataToSave = { config, rosterText, seats, seatMode };
-                    localStorage.setItem(`examMonitorData_${activeClassroom}`, JSON.stringify(dataToSave));
+                    // [修正] 改用 classSeatData_
+                    localStorage.setItem(`classSeatData_${activeClassroom}`, JSON.stringify(dataToSave));
                 }, 1000); 
 
                 return () => clearTimeout(timer);
@@ -593,7 +597,10 @@
                     }
 
                     const parts = trimmedLine.split(/[\t,，\s]+/);
-                    if (parts.length === 1 && !/^\d+$/.test(parts[0])) {
+                    
+                    // 修正：允許只有一個元素的行（即使是數字）作為班級名稱
+                    // 原本程式碼擋掉了純數字，導致 '1', '2' 這種標題被忽略
+                    if (parts.length === 1) {
                         currentClass = parts[0];
                         foundClasses.add(currentClass);
                         return;
@@ -632,7 +639,8 @@
 
             const saveToCloud = async () => {
                 if (!activeClassroom) return;
-                localStorage.setItem(`examMonitorData_${activeClassroom}`, JSON.stringify({ config, rosterText, seats, seatMode }));
+                // [修正] 改用 classSeatData_
+                localStorage.setItem(`classSeatData_${activeClassroom}`, JSON.stringify({ config, rosterText, seats, seatMode }));
                 
                 if (!isFirebaseConfigured || !user) { alert('已儲存至本地 (未設定 Firebase)'); return; }
                 setSyncStatus('saving');
@@ -653,7 +661,8 @@
                         if (isFirebaseConfigured && user) {
                             await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'classrooms', activeClassroom));
                         }
-                        localStorage.removeItem(`examMonitorData_${activeClassroom}`);
+                        // [修正] 改用 classSeatData_
+                        localStorage.removeItem(`classSeatData_${activeClassroom}`);
                         alert('資料已刪除。');
                         setSeats({}); setRosterText(DEFAULT_ROSTER); setActiveClassroom(null);
                     } catch (e) { console.error(e); alert('刪除失敗'); setSyncStatus('error'); }
