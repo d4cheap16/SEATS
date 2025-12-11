@@ -107,7 +107,7 @@
             overflow: hidden; /* 確保圓角 */
         }
         
-        /* 匯出內容垂直置中容器 (舊的 padding 移除，改由 Flex 控制) */
+        /* 匯出內容垂直置中容器 (移除 padding，改由 Flex 控制) */
         .cell-content-wrapper {
             display: flex;
             flex-direction: column;
@@ -115,7 +115,6 @@
             justify-content: center;
             height: 100%;
             width: 100%;
-            /* padding-top: 25px; 移除這個，改用 Flex 佈局避免重疊 */ 
         }
     </style>
 </head>
@@ -709,9 +708,9 @@
             const handleKeyDown = (e, r, c, type) => {
                 let targetR = r; let targetC = c;
                 if (e.key === 'Enter') {
+                    e.preventDefault(); // 阻擋預設換行
                     if (type === 'class') {
                         const targetKey = `${r}-${c}-seat`;
-                        e.preventDefault(); 
                         if (inputRefs.current[targetKey]) { 
                             inputRefs.current[targetKey].focus(); 
                         }
@@ -787,7 +786,7 @@
             };
 
             // ====================================================================
-            // ▼ 匯出與預覽邏輯 (最終修正版 - Flexbox Layout) ▼
+            // ▼ 匯出與預覽邏輯 (Flexbox Layout) ▼
             // ====================================================================
             const generatePdfContent = () => {
                 const pdfContainer = document.getElementById('pdf-export-container');
@@ -817,7 +816,7 @@
 
                         // 使用 div 包裹內容，以便使用 Flexbox
                         const cellInner = document.createElement('div');
-                        cellInner.style.cssText = `width: 100%; height: 100%; display: flex; flex-direction: column;`;
+                        cellInner.style.cssText = `width: 100%; height: 100%; display: flex; flex-direction: column; overflow: hidden;`; // Add overflow hidden
                         td.appendChild(cellInner);
 
                         const key = `${r}-${c}`;
@@ -842,7 +841,7 @@
                             displayStudentName = studentData?.name || '';
                         }
                         
-                        // 1. 班級標籤 (Flex Item 1)
+                        // 1. 班級標籤 (Flex Item 1 - 固定高度)
                         if (seatMode === 'mixed' && displayClass.trim()) {
                             const classDiv = document.createElement('div');
                             classDiv.textContent = displayClass;
@@ -856,8 +855,8 @@
                             
                             classDiv.style.cssText = `
                                 width: 100%;
-                                height: 20%; 
-                                min-height: 24px;
+                                height: 25%; /* 固定佔 25% 高度 */
+                                min-height: 20pt;
                                 background-color: ${bgColor};
                                 color: white; 
                                 font-size: 14pt; 
@@ -866,11 +865,13 @@
                                 align-items: center;
                                 justify-content: center;
                                 line-height: 1;
+                                border-bottom: 1px solid #e5e7eb;
+                                box-sizing: border-box;
                             `;
                             cellInner.appendChild(classDiv);
                         }
 
-                        // 2. 內容容器 (Flex Item 2 - Flex Grow)
+                        // 2. 內容容器 (Flex Item 2 - 佔滿剩餘空間)
                         const contentWrapper = document.createElement('div');
                         contentWrapper.style.cssText = `
                             flex: 1;
@@ -879,6 +880,8 @@
                             align-items: center;
                             justify-content: center;
                             width: 100%;
+                            padding: 2pt;
+                            box-sizing: border-box;
                         `;
 
                         // 座號
