@@ -130,15 +130,15 @@
         import { getFirestore, doc, setDoc, deleteDoc, onSnapshot, collection, getDocs } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 
         // ==========================================
-        // ▼ 您的 Firebase Config ▼
+        // ▼ 您的 Firebase Config (已更新為您的專屬設定) ▼
         // ==========================================
         const firebaseConfig = {
-          apiKey: "AIzaSyBd1OUQ2wwEOSIezzhsuuYcjZSXJPn-WnI",
-          authDomain: "examseat-508e9.firebaseapp.com",
-          projectId: "examseat-508e9",
-          storageBucket: "examseat-508e9.firebasestorage.app",
-          messagingSenderId: "959964513566",
-          appId: "1:959964513566:web:88dac9c40c5993a90a750f"
+          apiKey: "AIzaSyCWpy5aP8AnaP7nRDfKHMKkLigFdwaAgYM",
+          authDomain: "seatsys-833df.firebaseapp.com",
+          projectId: "seatsys-833df",
+          storageBucket: "seatsys-833df.firebasestorage.app",
+          messagingSenderId: "961339152816",
+          appId: "1:961339152816:web:3f5259c234380786eb9e75"
         };
         // ==========================================
 
@@ -149,7 +149,8 @@
             auth = getAuth(app);
             db = getFirestore(app);
         }
-        const appId = "examseat-508e9";
+        // 更新 appId 為您的專案 ID，確保資料獨立
+        const appId = "seatsys-833df";
 
         const { useState, useEffect, useRef, useMemo } = React;
 
@@ -786,7 +787,7 @@
             };
 
             // ====================================================================
-            // ▼ 匯出與預覽邏輯 (Flexbox Layout) ▼
+            // ▼ 匯出與預覽邏輯 (最終修正版 - Flexbox Layout) ▼
             // ====================================================================
             const generatePdfContent = () => {
                 const pdfContainer = document.getElementById('pdf-export-container');
