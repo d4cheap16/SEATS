@@ -174,7 +174,7 @@
         ];
 
         // 預設名單
-        const DEFAULT_ROSTER = `[高一OO班]
+        const DEFAULT_ROSTER = `[JoJo的奇妙冒險]
 01\t白金之星
 02\t瘋狂鑽石
 03\t石之海
@@ -448,6 +448,8 @@
             const [seatMode, setSeatMode] = useState('single'); 
             const [previewData, setPreviewData] = useState(null); 
             const inputRefs = useRef({});
+            // [修正] 加入刪除鎖，防止刪除時自動存檔寫回舊資料
+            const isDeleting = useRef(false);
 
             const [helperClassName, setHelperClassName] = useState('');
             const [helperStudentList, setHelperStudentList] = useState('');
@@ -536,6 +538,9 @@
                 setSyncStatus('loading');
                 const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'classrooms', activeClassroom);
                 const unsubscribe = onSnapshot(docRef, (docSnap) => {
+                    // [修正] 刪除中則不接受任何更新，避免舊資料回寫
+                    if (isDeleting.current) return;
+
                     if (docSnap.exists()) {
                         const data = docSnap.data();
                         if (data.config) setConfig(prev => ({...prev, ...data.config}));
@@ -567,9 +572,13 @@
             }, [user, activeClassroom]);
 
             useEffect(() => {
-                if (!activeClassroom || !dataLoaded) return; 
+                // [修正] 加入 isDeleting 檢查，若正在刪除中，絕對不要執行自動存檔
+                if (!activeClassroom || !dataLoaded || isDeleting.current) return; 
 
                 const timer = setTimeout(() => {
+                    // [修正] Double check，防止 timeout 執行時正好處於刪除狀態
+                    if (isDeleting.current) return;
+
                     const dataToSave = { config, rosterText, seats, seatMode };
                     // [修正] 改用 classSeatData_
                     localStorage.setItem(`classSeatData_${activeClassroom}`, JSON.stringify(dataToSave));
@@ -638,7 +647,7 @@
 
 
             const saveToCloud = async () => {
-                if (!activeClassroom) return;
+                if (!activeClassroom || isDeleting.current) return;
                 // [修正] 改用 classSeatData_
                 localStorage.setItem(`classSeatData_${activeClassroom}`, JSON.stringify({ config, rosterText, seats, seatMode }));
                 
@@ -656,16 +665,37 @@
                 if (!activeClassroom) return;
                 const confirmCode = prompt(`警告：這將會永久刪除「${activeClassroom}」的所有資料！\n\n請輸入「${activeClassroom}」以確認：`);
                 if (confirmCode === activeClassroom) {
+                    // [修正] 上鎖，防止其他機制干擾刪除
+                    isDeleting.current = true;
                     try {
                         setSyncStatus('saving');
+                        
+                        // 1. 刪除雲端
                         if (isFirebaseConfigured && user) {
                             await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'classrooms', activeClassroom));
                         }
-                        // [修正] 改用 classSeatData_
-                        localStorage.removeItem(`classSeatData_${activeClassroom}`);
+
+                        // 2. 刪除本地
+                        const key = `classSeatData_${activeClassroom}`;
+                        localStorage.removeItem(key);
+                        
+                        // 3. 重置狀態
                         alert('資料已刪除。');
-                        setSeats({}); setRosterText(DEFAULT_ROSTER); setActiveClassroom(null);
-                    } catch (e) { console.error(e); alert('刪除失敗'); setSyncStatus('error'); }
+                        setSeats({}); 
+                        setRosterText(DEFAULT_ROSTER); 
+                        
+                        // [修正] 再次確保本地已被清除 (防止 React State Update 過程中的 race condition)
+                        setTimeout(() => localStorage.removeItem(key), 0);
+
+                        setActiveClassroom(null);
+                    } catch (e) { 
+                        console.error(e); 
+                        alert('刪除失敗'); 
+                        setSyncStatus('error'); 
+                    } finally {
+                        // 解鎖 (稍微延遲以確保組件卸載)
+                        setTimeout(() => { isDeleting.current = false; }, 1000);
+                    }
                 }
             };
 
