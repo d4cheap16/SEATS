@@ -101,12 +101,13 @@
             padding: 0; /* 移除 padding 以便滿版 header */
             box-sizing: border-box;
             position: relative;
-            /* 讓內容強制居中 */
+            /* 改用 Flexbox 進行內部排版 */
+            /* display: flex;  <-- table-cell 不能直接 display:flex，我們在內部包一層 div */
             display: table-cell;
             overflow: hidden; /* 確保圓角 */
         }
         
-        /* 匯出內容垂直置中容器 */
+        /* 匯出內容垂直置中容器 (舊的 padding 移除，改由 Flex 控制) */
         .cell-content-wrapper {
             display: flex;
             flex-direction: column;
@@ -114,7 +115,7 @@
             justify-content: center;
             height: 100%;
             width: 100%;
-            padding-top: 25px; /* 留空間給頂部的班級標籤 */
+            /* padding-top: 25px; 移除這個，改用 Flex 佈局避免重疊 */ 
         }
     </style>
 </head>
@@ -710,8 +711,8 @@
                 if (e.key === 'Enter') {
                     if (type === 'class') {
                         const targetKey = `${r}-${c}-seat`;
+                        e.preventDefault(); 
                         if (inputRefs.current[targetKey]) { 
-                            e.preventDefault(); 
                             inputRefs.current[targetKey].focus(); 
                         }
                         return;
@@ -786,7 +787,7 @@
             };
 
             // ====================================================================
-            // ▼ 匯出與預覽邏輯 (最終修正版) ▼
+            // ▼ 匯出與預覽邏輯 (最終修正版 - Flexbox Layout) ▼
             // ====================================================================
             const generatePdfContent = () => {
                 const pdfContainer = document.getElementById('pdf-export-container');
@@ -814,6 +815,11 @@
                         const minHeight = Math.floor(200 / config.rows); 
                         td.style.height = `${minHeight}mm`;
 
+                        // 使用 div 包裹內容，以便使用 Flexbox
+                        const cellInner = document.createElement('div');
+                        cellInner.style.cssText = `width: 100%; height: 100%; display: flex; flex-direction: column;`;
+                        td.appendChild(cellInner);
+
                         const key = `${r}-${c}`;
                         const seat = seats[key] || { number: '' };
                         
@@ -836,11 +842,7 @@
                             displayStudentName = studentData?.name || '';
                         }
                         
-                        // 內容容器
-                        const contentWrapper = document.createElement('div');
-                        contentWrapper.className = 'cell-content-wrapper';
-
-                        // 班級標籤 (修正：滿版置中 Header)
+                        // 1. 班級標籤 (Flex Item 1)
                         if (seatMode === 'mixed' && displayClass.trim()) {
                             const classDiv = document.createElement('div');
                             classDiv.textContent = displayClass;
@@ -853,9 +855,6 @@
                             const bgColor = colorMap[color] || '#4b5563';
                             
                             classDiv.style.cssText = `
-                                position: absolute; 
-                                top: 0; 
-                                left: 0; 
                                 width: 100%;
                                 height: 20%; 
                                 min-height: 24px;
@@ -863,15 +862,24 @@
                                 color: white; 
                                 font-size: 14pt; 
                                 font-weight: 900; 
-                                border-radius: 6px 6px 0 0; 
                                 display: flex;
                                 align-items: center;
                                 justify-content: center;
                                 line-height: 1;
-                                z-index: 1;
                             `;
-                            td.appendChild(classDiv);
+                            cellInner.appendChild(classDiv);
                         }
+
+                        // 2. 內容容器 (Flex Item 2 - Flex Grow)
+                        const contentWrapper = document.createElement('div');
+                        contentWrapper.style.cssText = `
+                            flex: 1;
+                            display: flex;
+                            flex-direction: column;
+                            align-items: center;
+                            justify-content: center;
+                            width: 100%;
+                        `;
 
                         // 座號
                         const numberDiv = document.createElement('div');
@@ -885,7 +893,7 @@
                         nameDiv.textContent = displayStudentName || '';
                         contentWrapper.appendChild(nameDiv);
 
-                        td.appendChild(contentWrapper);
+                        cellInner.appendChild(contentWrapper);
                         tr.appendChild(td);
                     }
                     tbody.appendChild(tr);
