@@ -843,7 +843,7 @@
             };
 
             // ====================================================================
-            // ▼ 匯出與預覽邏輯 (最終修正版 - Flexbox Layout) ▼
+            // ▼ 匯出與預覽邏輯 (修正版 - 修正教師視角左右翻轉問題) ▼
             // ====================================================================
             const generatePdfContent = () => {
                 const pdfContainer = document.getElementById('pdf-export-container');
@@ -863,9 +863,13 @@
                 table.className = 'export-table';
                 const tbody = document.createElement('tbody');
                 
+                // [修正] 外層迴圈維持不變 (Row: Max -> 0)，確保前後(上下)翻轉
                 for (let r = config.rows - 1; r >= 0; r--) {
                     const tr = document.createElement('tr');
-                    for (let c = 0; c < config.cols; c++) {
+                    
+                    // [修正重點] 內層迴圈改為倒序 (Col: Max -> 0)，確保左右翻轉
+                    // 原本是: for (let c = 0; c < config.cols; c++)
+                    for (let c = config.cols - 1; c >= 0; c--) {
                         const td = document.createElement('td');
                         td.className = 'export-cell';
                         const minHeight = Math.floor(200 / config.rows); 
@@ -873,7 +877,7 @@
 
                         // 使用 div 包裹內容，以便使用 Flexbox
                         const cellInner = document.createElement('div');
-                        cellInner.style.cssText = `width: 100%; height: 100%; display: flex; flex-direction: column; overflow: hidden;`; // Add overflow hidden
+                        cellInner.style.cssText = `width: 100%; height: 100%; display: flex; flex-direction: column; overflow: hidden;`;
                         td.appendChild(cellInner);
 
                         const key = `${r}-${c}`;
@@ -883,10 +887,8 @@
                         let displayClass = '';
                         let displayStudentName = '';
 
-                        // 統一使用 robust 的切割邏輯
                         if (seatMode === 'single') {
                             displayNum = seat.number;
-                            // 可能包含班級前綴 (如 301-5)，但單一模式只顯示座號
                             if (seat.number && seat.number.toString().includes('-')) {
                                 const lastDash = seat.number.lastIndexOf('-');
                                 if (lastDash > 0) displayNum = seat.number.substring(lastDash + 1);
@@ -894,7 +896,6 @@
                             const studentData = findStudentData(seat.number); 
                             displayStudentName = studentData?.name || '';
                         } else {
-                            // 混合模式
                             displayNum = seat.number;
                             if (seat.number && seat.number.toString().includes('-')) {
                                 const lastDash = seat.number.lastIndexOf('-');
@@ -907,7 +908,7 @@
                             displayStudentName = studentData?.name || '';
                         }
                         
-                        // 1. 班級標籤 (Flex Item 1 - 固定高度)
+                        // 1. 班級標籤
                         if (seatMode === 'mixed' && displayClass.trim()) {
                             const classDiv = document.createElement('div');
                             classDiv.textContent = displayClass;
@@ -921,7 +922,7 @@
                             
                             classDiv.style.cssText = `
                                 width: 100%;
-                                height: 25%; /* 固定佔 25% 高度 */
+                                height: 25%;
                                 min-height: 20pt;
                                 background-color: ${bgColor};
                                 color: white; 
@@ -937,7 +938,7 @@
                             cellInner.appendChild(classDiv);
                         }
 
-                        // 2. 內容容器 (Flex Item 2 - 佔滿剩餘空間)
+                        // 2. 內容容器
                         const contentWrapper = document.createElement('div');
                         contentWrapper.style.cssText = `
                             flex: 1;
